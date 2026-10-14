@@ -22,8 +22,9 @@ COLOR_QUIET = (80, 170, 255)      # blau
 COLOR_RAPID = (255, 50, 50)       # vermell
 VELOCITAT_MAXIMA = 8.0            # m/s a partir de la qual ja és ben vermella
 K_REPULSIO = 0.03          # intensitat (a = K / r^2, amb massa 1 i r en metres)
+K_PARET = 0.03             # intensitat particula-paret
 DISTANCIA_MINIMA = 0.05   # m; evita la força infinita quan dues partícules es toquen
-MU_VISCOSITAT = 0.5        # 1/s; intensitat de la fricció entre veïnes
+MU_VISCOSITAT = 1        # 1/s; intensitat de la fricció entre veïnes
 RADI_VISCOSITAT = 0.2      # m; només interactuen si estan més a prop que això
 
 NOMBRE_PARTICULES = 300
@@ -72,12 +73,22 @@ class Particula:
         pos = (int(self.x * PIXELS_PER_METRE), int(self.y * PIXELS_PER_METRE))
         pygame.draw.circle(pantalla, self.color(), pos, self.radi)
 
+    def repulsio_parets(self):
+        w, h = AMPLADA / PIXELS_PER_METRE, ALTURA / PIXELS_PER_METRE
+        d_esq = max(self.x, DISTANCIA_MINIMA)
+        d_dre = max(w - self.x, DISTANCIA_MINIMA)
+        d_sos = max(self.y, DISTANCIA_MINIMA)
+        d_ter = max(h - self.y, DISTANCIA_MINIMA)
+        self.ax += K_PARET / d_esq**2 - K_PARET / d_dre**2
+        self.ay += K_PARET / d_sos**2 - K_PARET / d_ter**2
+
 #Funcions auxiliars
 def calcula_interaccions(particules):
     for p in particules:
         p.ax = 0.0
         p.ay = 0.0
-
+        p.repulsio_parets()
+        
     for i in range(len(particules)):
         for j in range(i + 1, len(particules)):   # cada parella una sola vegada
             a, b = particules[i], particules[j]
@@ -100,9 +111,10 @@ def calcula_interaccions(particules):
                 a.ay -= MU_VISCOSITAT * w * dvy
                 b.ax += MU_VISCOSITAT * w * dvx
                 b.ay += MU_VISCOSITAT * w * dvy
+#-----FI DE CÀLCUL D'INTERACCIONS-----#
+
 
 #Execució del programa
-
 def main():
     pygame.init()
     pantalla = pygame.display.set_mode((AMPLADA, ALTURA))
