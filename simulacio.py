@@ -7,6 +7,10 @@ Cada interacció viu en la seva pròpia funció:
   - forca_parets     : repulsió de les parets del recipient
   - forca_viscosa    : fricció entre partícules veïnes
 
+Optimització: totes les forces entre partícules tenen un abast finit
+(RADI_INTERACCIO) i només es calculen entre partícules de cel·les veïnes d'una
+graella, de manera que el cost creix com N i no com N^2.
+
 Dependències:  pip install pygame   (o pygame-ce amb Python 3.14)
 Execució:      python simulacio.py
 """
@@ -16,31 +20,37 @@ import random
 import pygame
 
 # --- Configuració de la finestra ---
-AMPLADA, ALTURA = 400, 300
-FPS = 30
+AMPLADA, ALTURA, ALTURA_PANT = 300, 300, 330
+FPS = 25
 COLOR_FONS = (15, 15, 25)
+COLOR_RECTANGLE = (80, 80, 80)
 COLOR_QUIET = (80, 170, 255)      # blau
 COLOR_RAPID = (255, 50, 50)       # vermell
-VELOCITAT_MAXIMA = 8.0            # m/s a partir de la qual ja és ben vermella
+VELOCITAT_MAXIMA = 5.0            # m/s a partir de la qual ja és ben vermella
+RADI = 5
 
 # --- Física general ---
 PIXELS_PER_METRE = 100.0          # escala: 100 px = 1 m
-GRAVETAT = 9.81                   # m/s^2 (positiu = cap avall)
-RESTITUCIO = 0.3                  # 1 = rebot perfecte, 0 = no rebota
-NOMBRE_PARTICULES = 300
+GRAVETAT = 0                   # m/s^2 (positiu = cap avall)
+RESTITUCIO = 0.2                  # 1 = rebot perfecte, 0 = no rebota
+NOMBRE_PARTICULES = 800
 
 # --- Paràmetres de cada interacció ---
-#Repulsió inv. quadràtica
-K_REPULSIO = 0.03                 # a = K / r^2 (massa 1, r en metres)
+K_REPULSIO = 0.01                 # a = K * (1/r^2 - 1/R^2), amb R = RADI_INTERACCIO (massa 1, r en m)
 DISTANCIA_MINIMA = 0.05           # m; evita forces infinites quan dues partícules es toquen
-#Atracció lineal
-K_ATRACCIO = 0.5                  # m/s^2 quan r -> 0 (cau linealment fins a 0 a RADI_ATRACCIO)
-RADI_ATRACCIO = 0.1               # m; abast de l'atracció
-# Amb aquests valors la repulsió i l'atracció s'igualen a r ~ ? m (distància d'equilibri)
-K_PARET = 0.03                    # intensitat partícula-paret
-#Viscositat
-MU_VISCOSITAT = 3.0               # 1/s; intensitat de la fricció entre veïnes
-RADI_VISCOSITAT = 0.1             # m; només interactuen si estan més a prop que això
+
+K_ATRACCIO = 0.05                  # m/s^2 quan r -> 0 (cau linealment fins a 0 a RADI_ATRACCIO)
+RADI_ATRACCIO = 0.3               # m; abast de l'atracció
+
+K_PARET = 0.005                    # intensitat partícula-paret
+
+MU_VISCOSITAT = 0.1               # 1/s; intensitat de la fricció entre veïnes
+RADI_VISCOSITAT = 0.3             # m; només interactuen si estan més a prop que això
+
+# Abast màxim de qualsevol interacció entre partícules; també és la mida de cel·la de la graella
+RADI_INTERACCIO = max(RADI_ATRACCIO, RADI_VISCOSITAT)
+INV_R2_TALL = 1.0 / RADI_INTERACCIO ** 2
+# Amb aquests valors la repulsió i l'atracció s'igualen a r ~ 0.15 m (distància d'equilibri)
 
 # Mides del recipient en metres (es calculen una sola vegada)
 AMPLADA_M = AMPLADA / PIXELS_PER_METRE
@@ -101,8 +111,9 @@ class Particula:
 # ======================================================================
 
 def forca_repulsio(r, ux, uy):
-    """Repulsió entre partícules, inversament proporcional a r^2."""
-    f = K_REPULSIO / (r * r)
+    """Repulsió ~1/r^2, desplaçada perquè sigui exactament 0 a RADI_INTERACCIO
+    (si es tallés de cop, la força faria un salt i generaria soroll)."""
+    f = K_REPULSIO * (1.0 / (r * r) - INV_R2_TALL)
     return f * ux, f * uy
 
 
@@ -134,11 +145,41 @@ def forca_parets(p):
 
 
 def geometria_parella(a, b):
-    """Calcula una sola vegada tot el que necessiten les funcions de parella."""
+    """Calcula una sola vegada tot el que necessiten les funcions de parella.
+    Retorna None si la parella és fora de l'abast de les interaccions."""
     dx = a.x - b.x
     dy = a.y - b.y
-    r = max(math.hypot(dx, dy), DISTANCIA_MINIMA)
+    d2 = dx * dx + dy * dy
+    if d2 >= RADI_INTERACCIO ** 2:
+        return None
+    r = max(math.sqrt(d2), DISTANCIA_MINIMA)
     return r, dx / r, dy / r, a.vx - b.vx, a.vy - b.vy
+
+
+def construeix_graella(particules):
+    """Reparteix les partícules en cel·les quadrades de costat RADI_INTERACCIO."""
+    graella = {}
+    for p in particules:
+        clau = (int(p.x // RADI_INTERACCIO), int(p.y // RADI_INTERACCIO))
+        graella.setdefault(clau, []).append(p)
+    return graella
+
+
+def parelles_veines(graella):
+    """Genera cada parella de partícules que podrien interaccionar, una sola vegada.
+    Una partícula només pot tenir veïnes dins de la seva cel·la o de les 8 de
+    voltant; per no repetir parelles, cada cel·la només mira la seva i 4 de veïnes."""
+    for (cx, cy), cella in graella.items():
+        n = len(cella)
+        for i in range(n):                       # parelles dins la mateixa cel·la
+            for j in range(i + 1, n):
+                yield cella[i], cella[j]
+        for ox, oy in ((1, 0), (-1, 1), (0, 1), (1, 1)):
+            altra = graella.get((cx + ox, cy + oy))
+            if altra:
+                for a in cella:
+                    for b in altra:
+                        yield a, b
 
 
 def calcula_interaccions(particules):
@@ -146,36 +187,38 @@ def calcula_interaccions(particules):
     for p in particules:
         p.ax, p.ay = forca_parets(p)
 
-    n = len(particules)
-    for i in range(n):
-        for j in range(i + 1, n):                # cada parella una sola vegada
-            a, b = particules[i], particules[j]
-            r, ux, uy, dvx, dvy = geometria_parella(a, b)
+    graella = construeix_graella(particules)
+    for a, b in parelles_veines(graella):
+        geo = geometria_parella(a, b)
+        if geo is None:                          # veïna de cel·la però fora d'abast
+            continue
+        r, ux, uy, dvx, dvy = geo
 
-            rep = forca_repulsio(r, ux, uy)
-            atr = forca_atraccio(r, ux, uy)
-            vis = forca_viscosa(r, dvx, dvy)
+        rep = forca_repulsio(r, ux, uy)
+        atr = forca_atraccio(r, ux, uy)
+        vis = forca_viscosa(r, dvx, dvy)
 
-            fx = rep[0] + atr[0] + vis[0]
-            fy = rep[1] + atr[1] + vis[1]
-            a.ax += fx
-            a.ay += fy
-            b.ax -= fx
-            b.ay -= fy
+        fx = rep[0] + atr[0] + vis[0]
+        fy = rep[1] + atr[1] + vis[1]
+        a.ax += fx
+        a.ay += fy
+        b.ax -= fx
+        b.ay -= fy
 
 
 # ======================================================================
 #  EXECUCIÓ
 # ======================================================================
-
 def main():
     pygame.init()
-    pantalla = pygame.display.set_mode((AMPLADA, ALTURA))
+    pantalla = pygame.display.set_mode((AMPLADA, ALTURA_PANT))
+    pygame.draw.rect(pantalla, COLOR_RECTANGLE, (100, 100, 100, 100))
     pygame.display.set_caption("Simulació de fluids")
     rellotge = pygame.time.Clock()
+    font = pygame.font.Font(None, 24)      # tipus de lletra per defecte de pygame
 
     particules = [
-        Particula(random.randint(0, AMPLADA), random.randint(0, ALTURA))
+        Particula(random.randint(0, AMPLADA//4), random.randint(0, ALTURA), RADI)
         for _ in range(NOMBRE_PARTICULES)
     ]
 
@@ -194,13 +237,20 @@ def main():
         for particula in particules:
             particula.actualitza(dt)
 
+        v_mitjana = sum(math.hypot(p.vx, p.vy) for p in particules) / len(particules)
+
         pantalla.fill(COLOR_FONS)
         for particula in particules:
             particula.dibuixa(pantalla)
+
+        t = min(v_mitjana / VELOCITAT_MAXIMA, 1.0)      # 0 = quieta, 1 = molt ràpida
+        text = font.render(f"v mitjana: {v_mitjana:.2f} m/s", True, tuple(int(a + t * (b - a)) for a, b in zip(COLOR_QUIET, COLOR_RAPID)))
+        pygame.draw.rect(pantalla, COLOR_RECTANGLE, (0, ALTURA, AMPLADA, ALTURA_PANT-ALTURA))
+        pantalla.blit(text, text.get_rect(topright=(AMPLADA - 10, ALTURA_PANT - 25)))
+        
         pygame.display.flip()
 
     pygame.quit()
-
 
 if __name__ == "__main__":
     main()
