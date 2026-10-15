@@ -31,7 +31,7 @@ RADI = 5
 
 # --- Física general ---
 PIXELS_PER_METRE = 100.0          # escala: 100 px = 1 m
-GRAVETAT = 0                   # m/s^2 (positiu = cap avall)
+GRAVETAT = 9.81                   # m/s^2 (positiu = cap avall)
 RESTITUCIO = 0.2                  # 1 = rebot perfecte, 0 = no rebota
 NOMBRE_PARTICULES = 800
 
