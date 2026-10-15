@@ -15,6 +15,7 @@ Dependències:  pip install pygame   (o pygame-ce amb Python 3.14)
 Execució:      python simulacio.py
 """
 
+import time
 import math
 import random
 import pygame
@@ -221,7 +222,13 @@ def main():
         for _ in range(NOMBRE_PARTICULES)
     ]
 
+    ultim_informe = time.perf_counter()
+    fotogrames = 0
+    suma_interaccions = 0.0
+    suma_actualitzacio = 0.0
+    suma_dibuix = 0.0
     executant = True
+
     while executant:
         dt = rellotge.tick(FPS) / 1000.0   # segons des de l'últim fotograma
         dt = min(dt, 1 / 30)               # evita salts grans si la finestra es bloqueja
@@ -233,21 +240,55 @@ def main():
                 executant = False
 
         calcula_interaccions(particules)
+        
+        # 1. Interaccions entre partícules
+        t0 = time.perf_counter()
+        calcula_interaccions(particules)
+        t_interaccions = time.perf_counter() - t0
+
+        # 2. Actualització física
+        t0 = time.perf_counter()
         for particula in particules:
             particula.actualitza(dt)
+        t_actualitzacio = time.perf_counter() - t0
 
-        v_mitjana = sum(math.hypot(p.vx, p.vy) for p in particules) / len(particules)
+        v_mitjana = sum(
+            math.hypot(p.vx, p.vy) for p in particules
+        ) / len(particules)
 
+        # 3. Dibuix de les partícules
+        t0 = time.perf_counter()
         pantalla.fill(COLOR_FONS)
         for particula in particules:
             particula.dibuixa(pantalla)
 
-        t = min(v_mitjana / VELOCITAT_MAXIMA, 1.0)      # 0 = quieta, 1 = molt ràpida
-        text = font.render(f"v mitjana: {v_mitjana:.2f} m/s", True, tuple(int(a + t * (b - a)) for a, b in zip(COLOR_QUIET, COLOR_RAPID)))
-        pygame.draw.rect(pantalla, COLOR_RECTANGLE, (0, ALTURA, AMPLADA, ALTURA_PANT-ALTURA))
-        pantalla.blit(text, text.get_rect(topright=(AMPLADA - 10, ALTURA_PANT - 25)))
-        
+        # Mantén aquí el teu codi actual que dibuixa el text
+        # de la velocitat mitjana i la franja inferior.
+
         pygame.display.flip()
+        t_dibuix = time.perf_counter() - t0
+        fotogrames += 1
+        suma_interaccions += t_interaccions
+        suma_actualitzacio += t_actualitzacio
+        suma_dibuix += t_dibuix
+
+        ara = time.perf_counter()
+        if ara - ultim_informe >= 1.0:
+            n = max(fotogrames, 1)
+
+            print(
+                f"Partícules: {len(particules)} | "
+                f"FPS objectiu: {FPS} | "
+                f"Interaccions: {suma_interaccions / n * 1000:.2f} ms | "
+                f"Actualització: {suma_actualitzacio / n * 1000:.2f} ms | "
+                f"Dibuix: {suma_dibuix / n * 1000:.2f} ms"
+            )
+
+            ultim_informe = ara
+            fotogrames = 0
+            suma_interaccions = 0.0
+            suma_actualitzacio = 0.0
+            suma_dibuix = 0.0
 
     pygame.quit()
 
