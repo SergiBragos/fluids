@@ -20,35 +20,34 @@ import random
 import pygame
 
 # --- Configuració de la finestra ---
-AMPLADA, ALTURA, ALTURA_PANT = 300, 300, 330
-FPS = 25
+AMPLADA, ALTURA = 600, 400
+ALTURA_PANT = ALTURA + 30
+FPS = 30
 COLOR_FONS = (15, 15, 25)
 COLOR_RECTANGLE = (80, 80, 80)
 COLOR_QUIET = (80, 170, 255)      # blau
 COLOR_RAPID = (255, 50, 50)       # vermell
 VELOCITAT_MAXIMA = 5.0            # m/s a partir de la qual ja és ben vermella
-RADI = 5
+RADI = 6
 
 # --- Física general ---
-PIXELS_PER_METRE = 100.0          # escala: 100 px = 1 m
+PIXELS_PER_METRE = 200.0          # escala: 100 px = 1 m
 GRAVETAT = 9.81                   # m/s^2 (positiu = cap avall)
-RESTITUCIO = 0.2                  # 1 = rebot perfecte, 0 = no rebota
-NOMBRE_PARTICULES = 800
+RESTITUCIO = 0.5                  # 1 = rebot perfecte, 0 = no rebota
+NOMBRE_PARTICULES = 600
 
 # --- Paràmetres de cada interacció ---
 K_REPULSIO = 0.01                 # a = K * (1/r^2 - 1/R^2), amb R = RADI_INTERACCIO (massa 1, r en m)
 DISTANCIA_MINIMA = 0.05           # m; evita forces infinites quan dues partícules es toquen
 
 K_ATRACCIO = 0.05                  # m/s^2 quan r -> 0 (cau linealment fins a 0 a RADI_ATRACCIO)
-RADI_ATRACCIO = 0.3               # m; abast de l'atracció
 
-K_PARET = 0.005                    # intensitat partícula-paret
+K_PARET = 0.003                    # intensitat partícula-paret
 
 MU_VISCOSITAT = 0.1               # 1/s; intensitat de la fricció entre veïnes
-RADI_VISCOSITAT = 0.3             # m; només interactuen si estan més a prop que això
 
 # Abast màxim de qualsevol interacció entre partícules; també és la mida de cel·la de la graella
-RADI_INTERACCIO = max(RADI_ATRACCIO, RADI_VISCOSITAT)
+RADI_INTERACCIO = 0.3
 INV_R2_TALL = 1.0 / RADI_INTERACCIO ** 2
 # Amb aquests valors la repulsió i l'atracció s'igualen a r ~ 0.15 m (distància d'equilibri)
 
@@ -119,17 +118,17 @@ def forca_repulsio(r, ux, uy):
 
 def forca_atraccio(r, ux, uy):
     """Atracció feble: màxima a r = 0 i nul·la a partir de RADI_ATRACCIO."""
-    if r >= RADI_ATRACCIO:
+    if r >= RADI_INTERACCIO:
         return 0.0, 0.0
-    f = -K_ATRACCIO * (1 - r / RADI_ATRACCIO)    # signe negatiu = cap a b
+    f = -K_ATRACCIO * (1 - r / RADI_INTERACCIO)    # signe negatiu = cap a b
     return f * ux, f * uy
 
 
 def forca_viscosa(r, dvx, dvy):
     """Fricció que frena la velocitat relativa entre veïnes."""
-    if r >= RADI_VISCOSITAT:
+    if r >= RADI_INTERACCIO:
         return 0.0, 0.0
-    w = 1 - r / RADI_VISCOSITAT                  # 1 si es toquen, 0 al límit del radi
+    w = 1 - r / RADI_INTERACCIO                  # 1 si es toquen, 0 al límit del radi
     return -MU_VISCOSITAT * w * dvx, -MU_VISCOSITAT * w * dvy
 
 
