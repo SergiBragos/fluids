@@ -42,7 +42,7 @@ DISTANCIA_MINIMA = 0.05           # m; evita forces infinites quan dues partícu
 
 K_ATRACCIO = 0.05                  # m/s^2 quan r -> 0 (cau linealment fins a 0 a RADI_ATRACCIO)
 
-K_PARET = 0.003                    # intensitat partícula-paret
+K_PARET = 0.01                    # intensitat partícula-paret
 
 MU_VISCOSITAT = 0.1               # 1/s; intensitat de la fricció entre veïnes
 
