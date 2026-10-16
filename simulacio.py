@@ -1,271 +1,241 @@
-"""
-Simulació 2D de partícules amb gravetat i interaccions (pygame).
+#simulacio.py
 
-Cada interacció viu en la seva pròpia funció:
-  - forca_repulsio   : repulsió entre partícules (1/r^2)
-  - forca_atraccio   : atracció feble i de curt abast entre partícules
-  - forca_parets     : repulsió de les parets del recipient
-  - forca_viscosa    : fricció entre partícules veïnes
-
-Optimització: totes les forces entre partícules tenen un abast finit
-(RADI_INTERACCIO) i només es calculen entre partícules de cel·les veïnes d'una
-graella, de manera que el cost creix com N i no com N^2.
-
-Dependències:  pip install pygame   (o pygame-ce amb Python 3.14)
-Execució:      python simulacio.py
-"""
-
+from particula import Particula
+from funcions_aux import calcula_interaccions
 import time
 import math
 import random
 import pygame
 
-# --- Configuració de la finestra ---
-AMPLADA, ALTURA = 600, 400
+# ============================================================
+# CONFIGURACIÓ DE LES MESURES DE RENDIMENT
+# ============================================================
+
+MESURA_TEMPS = True       # False per desactivar les mesures
+INTERVAL_IMPRESSIO = 60   # Imprimeix resultats cada 60 fotogrames
+
+# ============================================================
+# CONFIGURACIÓ DE LA FINESTRA
+# ============================================================
+
+AMPLADA, ALTURA = 400, 400
 ALTURA_PANT = ALTURA + 30
 FPS = 30
+
 COLOR_FONS = (15, 15, 25)
 COLOR_RECTANGLE = (80, 80, 80)
-COLOR_QUIET = (80, 170, 255)      # blau
-COLOR_RAPID = (255, 50, 50)       # vermell
-VELOCITAT_MAXIMA = 5.0            # m/s a partir de la qual ja és ben vermella
-RADI = 6
+COLOR_QUIET = (80, 170, 255)
+COLOR_RAPID = (255, 50, 50)
 
-# --- Física general ---
-PIXELS_PER_METRE = 200.0          # escala: 100 px = 1 m
-GRAVETAT = 9.81                   # m/s^2 (positiu = cap avall)
-RESTITUCIO = 0.5                  # 1 = rebot perfecte, 0 = no rebota
+VELOCITAT_MAXIMA = 5.0
+RADI = 5
+
+# ============================================================
+# FÍSICA GENERAL
+# ============================================================
+
+PIXELS_PER_METRE = 200.0
+GRAVETAT = 0
+RESTITUCIO = 0.5
 NOMBRE_PARTICULES = 600
 
-# --- Paràmetres de cada interacció ---
-K_REPULSIO = 0.01                 # a = K * (1/r^2 - 1/R^2), amb R = RADI_INTERACCIO (massa 1, r en m)
-DISTANCIA_MINIMA = 0.05           # m; evita forces infinites quan dues partícules es toquen
-
-K_ATRACCIO = 0.05                  # m/s^2 quan r -> 0 (cau linealment fins a 0 a RADI_ATRACCIO)
-
-K_PARET = 0.01                    # intensitat partícula-paret
-
-MU_VISCOSITAT = 0.1               # 1/s; intensitat de la fricció entre veïnes
-
-# Abast màxim de qualsevol interacció entre partícules; també és la mida de cel·la de la graella
-RADI_INTERACCIO = 0.3
-INV_R2_TALL = 1.0 / RADI_INTERACCIO ** 2
-# Amb aquests valors la repulsió i l'atracció s'igualen a r ~ 0.15 m (distància d'equilibri)
-
-# Mides del recipient en metres (es calculen una sola vegada)
+# Mides del recipient en metres.
 AMPLADA_M = AMPLADA / PIXELS_PER_METRE
 ALTURA_M = ALTURA / PIXELS_PER_METRE
 
 
-class Particula:
-    def __init__(self, x, y, radi=5):
-        # posició i velocitat en metres (la y creix cap avall, com a pygame)
-        self.x = x / PIXELS_PER_METRE
-        self.y = y / PIXELS_PER_METRE
-        self.vx = 0.0
-        self.vy = 0.0
-        self.ax = 0.0             # acceleració deguda a les interaccions
-        self.ay = 0.0
-        self.radi = radi
+# ============================================================
+# EXECUCIÓ PRINCIPAL
+# ============================================================
 
-    def actualitza(self, dt):
-        # Euler semi-implícit: primer la velocitat, després la posició
-        self.vx += self.ax * dt
-        self.vy += (GRAVETAT + self.ay) * dt
-        self.x += self.vx * dt
-        self.y += self.vy * dt
-
-        # xarxa de seguretat: si una partícula toca la paret, rebota
-        terra = (ALTURA - self.radi) / PIXELS_PER_METRE
-        paret_dreta = (AMPLADA - self.radi) / PIXELS_PER_METRE
-        paret_esquerra = self.radi / PIXELS_PER_METRE
-        if self.y > terra:
-            self.y = terra
-            self.vy = -self.vy * RESTITUCIO
-        if self.y < 0:
-            self.y = 0
-            self.vy = -self.vy * RESTITUCIO
-        if self.x > paret_dreta:
-            self.x = paret_dreta
-            self.vx = -self.vx * RESTITUCIO
-        if self.x < paret_esquerra:
-            self.x = paret_esquerra
-            self.vx = -self.vx * RESTITUCIO
-
-    def color(self):
-        vel = math.hypot(self.vx, self.vy)
-        t = min(vel / VELOCITAT_MAXIMA, 1.0)      # 0 = quieta, 1 = molt ràpida
-        return tuple(int(a + t * (b - a)) for a, b in zip(COLOR_QUIET, COLOR_RAPID))
-
-    def dibuixa(self, pantalla):
-        pos = (int(self.x * PIXELS_PER_METRE), int(self.y * PIXELS_PER_METRE))
-        pygame.draw.circle(pantalla, self.color(), pos, self.radi)
-
-
-# ======================================================================
-#  INTERACCIONS
-#  Les funcions de parella retornen la força (fx, fy) que rep la partícula
-#  "a"; la partícula "b" rep l'oposada (tercera llei de Newton).
-#  r = distància, (ux, uy) = vector unitari de b cap a a,
-#  (dvx, dvy) = velocitat de a respecte de b.
-# ======================================================================
-
-def forca_repulsio(r, ux, uy):
-    """Repulsió ~1/r^2, desplaçada perquè sigui exactament 0 a RADI_INTERACCIO
-    (si es tallés de cop, la força faria un salt i generaria soroll)."""
-    f = K_REPULSIO * (1.0 / (r * r) - INV_R2_TALL)
-    return f * ux, f * uy
-
-
-def forca_atraccio(r, ux, uy):
-    """Atracció feble: màxima a r = 0 i nul·la a partir de RADI_ATRACCIO."""
-    if r >= RADI_INTERACCIO:
-        return 0.0, 0.0
-    f = -K_ATRACCIO * (1 - r / RADI_INTERACCIO)    # signe negatiu = cap a b
-    return f * ux, f * uy
-
-
-def forca_viscosa(r, dvx, dvy):
-    """Fricció que frena la velocitat relativa entre veïnes."""
-    if r >= RADI_INTERACCIO:
-        return 0.0, 0.0
-    w = 1 - r / RADI_INTERACCIO                  # 1 si es toquen, 0 al límit del radi
-    return -MU_VISCOSITAT * w * dvx, -MU_VISCOSITAT * w * dvy
-
-
-def forca_parets(p):
-    """Repulsió de les quatre parets sobre una partícula (acceleració ax, ay)."""
-    d_esq = max(p.x, DISTANCIA_MINIMA)
-    d_dre = max(AMPLADA_M - p.x, DISTANCIA_MINIMA)
-    d_sos = max(p.y, DISTANCIA_MINIMA)
-    d_ter = max(ALTURA_M - p.y, DISTANCIA_MINIMA)
-    ax = K_PARET / d_esq ** 2 - K_PARET / d_dre ** 2
-    ay = K_PARET / d_sos ** 2 - K_PARET / d_ter ** 2
-    return ax, ay
-
-
-def geometria_parella(a, b):
-    """Calcula una sola vegada tot el que necessiten les funcions de parella.
-    Retorna None si la parella és fora de l'abast de les interaccions."""
-    dx = a.x - b.x
-    dy = a.y - b.y
-    d2 = dx * dx + dy * dy
-    if d2 >= RADI_INTERACCIO ** 2:
-        return None
-    r = max(math.sqrt(d2), DISTANCIA_MINIMA)
-    return r, dx / r, dy / r, a.vx - b.vx, a.vy - b.vy
-
-
-def construeix_graella(particules):
-    """Reparteix les partícules en cel·les quadrades de costat RADI_INTERACCIO."""
-    graella = {}
-    for p in particules:
-        clau = (int(p.x // RADI_INTERACCIO), int(p.y // RADI_INTERACCIO))
-        graella.setdefault(clau, []).append(p)
-    return graella
-
-
-def parelles_veines(graella):
-    """Genera cada parella de partícules que podrien interaccionar, una sola vegada.
-    Una partícula només pot tenir veïnes dins de la seva cel·la o de les 8 de
-    voltant; per no repetir parelles, cada cel·la només mira la seva i 4 de veïnes."""
-    for (cx, cy), cella in graella.items():
-        n = len(cella)
-        for i in range(n):                       # parelles dins la mateixa cel·la
-            for j in range(i + 1, n):
-                yield cella[i], cella[j]
-        for ox, oy in ((1, 0), (-1, 1), (0, 1), (1, 1)):
-            altra = graella.get((cx + ox, cy + oy))
-            if altra:
-                for a in cella:
-                    for b in altra:
-                        yield a, b
-
-
-
-def calcula_interaccions(particules):
-    inici = time.perf_counter()
-
-    for p in particules:
-        p.ax, p.ay = forca_parets(p)
-
-    graella = construeix_graella(particules)
-
-
-    for a, b in parelles_veines(graella):
-
-        geo = geometria_parella(a, b)
-        if geo is None:
-            continue
-
-        r, ux, uy, dvx, dvy = geo
-
-        rep = forca_repulsio(r, ux, uy)
-        atr = forca_atraccio(r, ux, uy)
-        vis = forca_viscosa(r, dvx, dvy)
-
-        fx = rep[0] + atr[0] + vis[0]
-        fy = rep[1] + atr[1] + vis[1]
-        a.ax += fx
-        a.ay += fy
-        b.ax -= fx
-        b.ay -= fy
-
-
-
-# ======================================================================
-#  EXECUCIÓ
-# ======================================================================
 def main():
     pygame.init()
-    pantalla = pygame.display.set_mode((AMPLADA, ALTURA_PANT))
-    pygame.draw.rect(pantalla, COLOR_RECTANGLE, (100, 100, 100, 100))
-    pygame.display.set_caption("Simulació de fluids")
-    rellotge = pygame.time.Clock()
-    font = pygame.font.Font(None, 24)      # tipus de lletra per defecte de pygame
 
+    pantalla = pygame.display.set_mode((AMPLADA, ALTURA_PANT))
+    pygame.display.set_caption("Simulació de fluids")
+
+    rellotge = pygame.time.Clock()
+    font = pygame.font.Font(None, 24)
 
     particules = [
-        Particula(random.randint(0, AMPLADA//4), random.randint(0, ALTURA), RADI)
+        Particula(
+            random.uniform(RADI / PIXELS_PER_METRE, AMPLADA_M / 4),
+            random.uniform(RADI / PIXELS_PER_METRE, ALTURA_M - RADI / PIXELS_PER_METRE),
+            RADI
+        )
         for _ in range(NOMBRE_PARTICULES)
     ]
 
     executant = True
 
+    # Acumuladors de mesures.
+    mostres = 0
+
+    acumulats = {
+        "parets": 0.0,
+        "graella": 0.0,
+        "parelles": 0.0,
+        "actualitzacio": 0.0,
+        "dibuix": 0.0,
+        "fotograma": 0.0,
+        "candidates": 0,
+        "efectives": 0,
+        "cel·les": 0
+    }
+
     while executant:
-        dt = rellotge.tick(FPS) / 1000.0   # segons des de l'últim fotograma
-        dt = min(dt, 1 / 30)               # evita salts grans si la finestra es bloqueja
+        dt = rellotge.tick(FPS) / 1000.0
+        dt = min(dt, 1 / 30)
+
+        # El temps de processament no inclou l'espera de rellotge.tick().
+        if MESURA_TEMPS:
+            inici_fotograma = time.perf_counter()
 
         for esdeveniment in pygame.event.get():
             if esdeveniment.type == pygame.QUIT:
                 executant = False
-            elif esdeveniment.type == pygame.KEYDOWN and esdeveniment.key == pygame.K_ESCAPE:
+
+            elif (
+                esdeveniment.type == pygame.KEYDOWN
+                and esdeveniment.key == pygame.K_ESCAPE
+            ):
                 executant = False
-        
-        # 1. Interaccions entre partícules
-        calcula_interaccions(particules)
 
-        # 2. Actualització física
+        if not executant:
+            break
+
+        # 1. Interaccions.
+        mesures = calcula_interaccions(
+            particules, AMPLADA_M, ALTURA_M, MESURA_TEMPS
+        )
+
+        # 2. Actualització física.
+        if MESURA_TEMPS:
+            t0 = time.perf_counter()
+
+        v_mitjana = 0.0
+
         for particula in particules:
-            particula.actualitza(dt)
+            particula.actualitza(
+                dt, GRAVETAT, RESTITUCIO,
+                AMPLADA_M, ALTURA_M, PIXELS_PER_METRE,
+            )
+            v_mitjana += math.hypot(particula.vx, particula.vy)
 
-        v_mitjana = sum(
-            math.hypot(p.vx, p.vy) for p in particules
-        ) / len(particules)
+        v_mitjana /= len(particules)
 
-        # 3. Dibuix de les partícules
+        if MESURA_TEMPS:
+            temps_actualitzacio = time.perf_counter() - t0
+
+        # 3. Dibuix.
+        if MESURA_TEMPS:
+            t0 = time.perf_counter()
+
         pantalla.fill(COLOR_FONS)
-        for particula in particules:
-            particula.dibuixa(pantalla)
 
-        t = min(v_mitjana / VELOCITAT_MAXIMA, 1.0)      # 0 = quieta, 1 = molt ràpida
-        text = font.render(f"v mitjana: {v_mitjana:.2f} m/s", True, tuple(int(a + t * (b - a)) for a, b in zip(COLOR_QUIET, COLOR_RAPID)))
-        pygame.draw.rect(pantalla, COLOR_RECTANGLE, (0, ALTURA, AMPLADA, ALTURA_PANT-ALTURA))
-        pantalla.blit(text, text.get_rect(topright=(AMPLADA - 10, ALTURA_PANT - 25)))
+        for particula in particules:
+            particula.dibuixa(
+                pantalla, PIXELS_PER_METRE, VELOCITAT_MAXIMA,
+                COLOR_QUIET, COLOR_RAPID,
+            )
+
+        t = min(v_mitjana / VELOCITAT_MAXIMA, 1.0)
+
+        color_text = tuple(
+            int(a + t * (b - a))
+            for a, b in zip(COLOR_QUIET, COLOR_RAPID)
+        )
+
+        text_velocitat = font.render(
+            f"v mitjana: {v_mitjana:.2f} m/s",
+            True,
+            color_text
+        )
+
+        pygame.draw.rect(
+            pantalla,
+            COLOR_RECTANGLE,
+            (0, ALTURA, AMPLADA, ALTURA_PANT - ALTURA)
+        )
+
+        pantalla.blit(
+            text_velocitat,
+            text_velocitat.get_rect(
+                topright=(AMPLADA - 10, ALTURA_PANT - 25)
+            )
+        )
 
         pygame.display.flip()
 
+        if MESURA_TEMPS:
+            temps_dibuix = time.perf_counter() - t0
+            temps_fotograma = time.perf_counter() - inici_fotograma
+
+            acumulats["parets"] += mesures["parets"]
+            acumulats["graella"] += mesures["graella"]
+            acumulats["parelles"] += mesures["parelles"]
+            acumulats["actualitzacio"] += temps_actualitzacio
+            acumulats["dibuix"] += temps_dibuix
+            acumulats["fotograma"] += temps_fotograma
+
+            acumulats["candidates"] += mesures["candidates"]
+            acumulats["efectives"] += mesures["efectives"]
+            acumulats["cel·les"] += mesures["cel·les"]
+
+            mostres += 1
+
+            # Imprimeix les mitjanes de l'interval.
+            if mostres >= INTERVAL_IMPRESSIO:
+                factor_ms = 1000.0 / mostres
+
+                print(
+                    f"\n--- Mitjanes dels últims {mostres} fotogrames ---"
+                )
+                print(
+                    f"Forces de paret:       "
+                    f"{acumulats['parets'] * factor_ms:.3f} ms"
+                )
+                print(
+                    f"Construcció graella:   "
+                    f"{acumulats['graella'] * factor_ms:.3f} ms"
+                )
+                print(
+                    f"Parelles i forces:     "
+                    f"{acumulats['parelles'] * factor_ms:.3f} ms"
+                )
+                print(
+                    f"Actualització física:  "
+                    f"{acumulats['actualitzacio'] * factor_ms:.3f} ms"
+                )
+                print(
+                    f"Dibuix:                "
+                    f"{acumulats['dibuix'] * factor_ms:.3f} ms"
+                )
+                print(
+                    f"Processament fotograma:"
+                    f" {acumulats['fotograma'] * factor_ms:.3f} ms"
+                )
+                print(
+                    f"Cel·les ocupades:      "
+                    f"{acumulats['cel·les'] / mostres:.1f}"
+                )
+                print(
+                    f"Parelles candidates:   "
+                    f"{acumulats['candidates'] / mostres:.1f}"
+                )
+                print(
+                    f"Parelles efectives:    "
+                    f"{acumulats['efectives'] / mostres:.1f}"
+                )
+
+                # Reinicia els acumuladors.
+                for clau in acumulats:
+                    acumulats[clau] = 0
+
+                mostres = 0
+
     pygame.quit()
+
 
 if __name__ == "__main__":
     main()
