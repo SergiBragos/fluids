@@ -3,14 +3,15 @@
 import math
 import time
 
-K_REPULSIO = 0.02
-DISTANCIA_MINIMA = 0.05
-K_ATRACCIO = 0.02
-K_PARET = 0.001
-MU_VISCOSITAT = 1
-RADI_INTERACCIO = 0.3
-INV_R2_TALL = 1.0 / RADI_INTERACCIO ** 2
-MIDA_CELLA = RADI_INTERACCIO / 2
+K_PARET = 0.01
+MU_VISCOSITAT = 0.1
+RADI_INTERACCIO = 0.2
+MIDA_CELLA = RADI_INTERACCIO
+
+# Paràmetres del model SPH (unitats del model, no SI estrictes).
+MASSA_PARTICULA = 0.001
+DENSITAT_REPOS = 0.01
+K_PRESSIO = 1
 
 
 def construeix_graella(particules):
@@ -38,10 +39,10 @@ def parelles_veines(graella):
 
 
 def forca_parets(particula, amplada_m, altura_m):
-    esquerra = max(particula.x, DISTANCIA_MINIMA)
-    dreta = max(amplada_m - particula.x, DISTANCIA_MINIMA)
-    sostre = max(particula.y, DISTANCIA_MINIMA)
-    terra = max(altura_m - particula.y, DISTANCIA_MINIMA)
+    esquerra = particula.x
+    dreta = amplada_m - particula.x
+    sostre = particula.y
+    terra = altura_m - particula.y
     return (
         K_PARET / esquerra ** 2 - K_PARET / dreta ** 2,
         K_PARET / sostre ** 2 - K_PARET / terra ** 2,
@@ -53,9 +54,40 @@ def geometria_parella(primera, segona):
     distancia_quadrada = dx * dx + dy * dy
     if distancia_quadrada >= RADI_INTERACCIO ** 2:
         return None
-    distancia = max(math.sqrt(distancia_quadrada), DISTANCIA_MINIMA)
-    return (distancia, dx / distancia, dy / distancia,
+    distancia = math.sqrt(distancia_quadrada)
+    # Si dues partícules coincideixen, la direcció és indeterminada.
+    # Escollim una direcció fixa perquè la força les pugui separar.
+    if distancia == 0.0:
+        ux, uy = 1.0, 0.0
+    else:
+        ux, uy = dx / distancia, dy / distancia
+    return (distancia, ux, uy,
             primera.vx - segona.vx, primera.vy - segona.vy)
+
+
+def kernel(r, h=RADI_INTERACCIO, d=2):
+    """Kernel spline cúbic normalitzat en una o dues dimensions."""
+    q = abs(r) / h
+    if q <= 0.5:
+        polinomi = 6 * (q ** 3 - q ** 2) + 1
+    elif q < 1.0:
+        polinomi = 2 * (1 - q) ** 3
+    else:
+        polinomi = 0.0
+    sigma = 40 / (7 * math.pi * h ** 2) if d == 2 else 4 / (3 * h)
+    return sigma * polinomi
+
+
+def gradient_kernel(r, h=RADI_INTERACCIO):
+    """Gradient radial spiky per a la força de pressió en 2D.
+
+    A diferència del kernel de densitat, la seva magnitud és màxima quan
+    r tendeix a zero, cosa que evita que les partícules s'agrupin per manca
+    de repulsió quan estan molt juntes.
+    """
+    if r >= h:
+        return 0.0
+    return -30 / (math.pi * h ** 5) * (h - r) ** 2
 
 
 def calcula_interaccions(particules, amplada_m, altura_m, mesura_temps=False):
@@ -70,6 +102,12 @@ def calcula_interaccions(particules, amplada_m, altura_m, mesura_temps=False):
 
     inici = time.perf_counter() if mesura_temps else None
     candidates = efectives = 0
+
+    # Primer pas SPH: densitat = suma de masses ponderades pel kernel.
+    for particula in particules:
+        particula.densitat = MASSA_PARTICULA * kernel(0.0)
+
+    parelles = []
     for primera, segona in parelles_veines(graella):
         candidates += 1
         geometria = geometria_parella(primera, segona)
@@ -77,11 +115,31 @@ def calcula_interaccions(particules, amplada_m, altura_m, mesura_temps=False):
             continue
         efectives += 1
         r, ux, uy, dvx, dvy = geometria
-        repulsio = K_REPULSIO * (1 / r ** 2 - INV_R2_TALL)
-        atraccio = -K_ATRACCIO * (1 - r / RADI_INTERACCIO)
+        pes_densitat = MASSA_PARTICULA * kernel(r)
+        primera.densitat += pes_densitat
+        segona.densitat += pes_densitat
+        parelles.append((primera, segona, r, ux, uy, dvx, dvy))
+
+    # Segon pas SPH: equació d'estat lineal.
+    # Es limita a zero la pressió negativa per evitar inestabilitat de tracció
+    # quan hi ha partícules aïllades o zones poc poblades.
+    for particula in particules:
+        particula.pressio = K_PRESSIO * max(
+            particula.densitat - DENSITAT_REPOS, 0.0
+        )
+
+    # Tercer pas: gradient de pressió + viscositat.
+    for primera, segona, r, ux, uy, dvx, dvy in parelles:
+        densitat_a = primera.densitat
+        densitat_b = segona.densitat
+        gradient = gradient_kernel(r)
+        coeficient_pressio = -MASSA_PARTICULA * (
+            primera.pressio / densitat_a ** 2
+            + segona.pressio / densitat_b ** 2
+        ) * gradient
         pes = 1 - r / RADI_INTERACCIO
-        fx = (repulsio + atraccio) * ux - MU_VISCOSITAT * pes * dvx
-        fy = (repulsio + atraccio) * uy - MU_VISCOSITAT * pes * dvy
+        fx = coeficient_pressio * ux - MU_VISCOSITAT * pes * dvx
+        fy = coeficient_pressio * uy - MU_VISCOSITAT * pes * dvy
         primera.ax += fx
         primera.ay += fy
         segona.ax -= fx
@@ -98,17 +156,3 @@ def calcula_interaccions(particules, amplada_m, altura_m, mesura_temps=False):
         "cel·les": len(graella),
     }
 
-def kernel(r, h, d = 2):
-    q = abs(r)/h
-    sigma_2D = 40/(7*math.pi*h*h)
-    sigma_1D = 4/(3*h)
-    if q <= 0.5:
-        res = 6*(q*q*q - q*q) + 1
-    elif q > 0.5 and q < 1:
-        res = 2*(1 - q)**3
-    else:
-        res = 0
-    if d == 2:
-        return sigma_2D * res
-    elif d == 1:
-        return sigma_1D * res

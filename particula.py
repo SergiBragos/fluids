@@ -1,5 +1,4 @@
 #particula.py -- Classe que representa una partícula de la simulació.
-
 import math
 import pygame
 
@@ -10,6 +9,8 @@ class Particula:
         self.x, self.y, self.radi = x, y, radi
         self.vx = self.vy = 0.0
         self.ax = self.ay = 0.0
+        self.densitat = 0.0
+        self.pressio = 0.0
 
     def actualitza(self, dt, gravetat, restitucio, amplada_m, altura_m, pixels_per_metre):
         """Integra el moviment i limita la partícula al recipient."""

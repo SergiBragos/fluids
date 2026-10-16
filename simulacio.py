@@ -35,9 +35,9 @@ RADI = 5
 # ============================================================
 
 PIXELS_PER_METRE = 200.0
-GRAVETAT = 0
+GRAVETAT = 9.81
 RESTITUCIO = 0.3
-NOMBRE_PARTICULES = 500
+NOMBRE_PARTICULES = 1000
 
 # Mides del recipient en metres.
 AMPLADA_M = AMPLADA / PIXELS_PER_METRE
