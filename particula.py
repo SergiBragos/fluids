@@ -1,11 +1,7 @@
-
-
-"""Classe que representa una partícula de la simulació."""
+#particula.py -- Classe que representa una partícula de la simulació.
 
 import math
-
 import pygame
-
 
 class Particula:
     """Estat i comportament d'una única partícula."""

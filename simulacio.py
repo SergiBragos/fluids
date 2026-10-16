@@ -1,4 +1,4 @@
-#simulacio.py
+#simulacio.py -- Bucle principal de la simulació
 
 from particula import Particula
 from funcions_aux import calcula_interaccions
@@ -11,7 +11,7 @@ import pygame
 # CONFIGURACIÓ DE LES MESURES DE RENDIMENT
 # ============================================================
 
-MESURA_TEMPS = True       # False per desactivar les mesures
+MESURA_TEMPS = False       # False per desactivar les mesures
 INTERVAL_IMPRESSIO = 60   # Imprimeix resultats cada 60 fotogrames
 
 # ============================================================
@@ -36,8 +36,8 @@ RADI = 5
 
 PIXELS_PER_METRE = 200.0
 GRAVETAT = 0
-RESTITUCIO = 0.5
-NOMBRE_PARTICULES = 600
+RESTITUCIO = 0.3
+NOMBRE_PARTICULES = 500
 
 # Mides del recipient en metres.
 AMPLADA_M = AMPLADA / PIXELS_PER_METRE

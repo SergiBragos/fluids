@@ -1,13 +1,13 @@
-"""Càlculs físics i cerca eficient de veïns de la simulació."""
+#funcions_aux.py -- Càlculs físics i cerca eficient de veïns de la simulació.
 
 import math
 import time
 
-K_REPULSIO = 0.01
+K_REPULSIO = 0.02
 DISTANCIA_MINIMA = 0.05
-K_ATRACCIO = 0.05
-K_PARET = 0.01
-MU_VISCOSITAT = 0.1
+K_ATRACCIO = 0.02
+K_PARET = 0.001
+MU_VISCOSITAT = 1
 RADI_INTERACCIO = 0.3
 INV_R2_TALL = 1.0 / RADI_INTERACCIO ** 2
 MIDA_CELLA = RADI_INTERACCIO / 2
@@ -97,3 +97,18 @@ def calcula_interaccions(particules, amplada_m, altura_m, mesura_temps=False):
         "efectives": efectives,
         "cel·les": len(graella),
     }
+
+def kernel(r, h, d = 2):
+    q = abs(r)/h
+    sigma_2D = 40/(7*math.pi*h*h)
+    sigma_1D = 4/(3*h)
+    if q <= 0.5:
+        res = 6*(q*q*q - q*q) + 1
+    elif q > 0.5 and q < 1:
+        res = 2*(1 - q)**3
+    else:
+        res = 0
+    if d == 2:
+        return sigma_2D * res
+    elif d == 1:
+        return sigma_1D * res
