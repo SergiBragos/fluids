@@ -15,6 +15,7 @@ Dependències:  pip install pygame   (o pygame-ce amb Python 3.14)
 Execució:      python simulacio.py
 """
 
+import time
 import math
 import random
 import pygame
@@ -181,16 +182,28 @@ def parelles_veines(graella):
                         yield a, b
 
 
+
 def calcula_interaccions(particules):
-    """Només suma els efectes de cada interacció sobre l'acceleració."""
+    inici = time.perf_counter()
+
     for p in particules:
         p.ax, p.ay = forca_parets(p)
 
+    t_parets = time.perf_counter()
     graella = construeix_graella(particules)
+    t_graella = time.perf_counter()
+
+    candidates = 0
+    efectives = 0
+
     for a, b in parelles_veines(graella):
+        candidates += 1
+
         geo = geometria_parella(a, b)
-        if geo is None:                          # veïna de cel·la però fora d'abast
+        if geo is None:
             continue
+
+        efectives += 1
         r, ux, uy, dvx, dvy = geo
 
         rep = forca_repulsio(r, ux, uy)
@@ -203,6 +216,36 @@ def calcula_interaccions(particules):
         a.ay += fy
         b.ax -= fx
         b.ay -= fy
+
+    final = time.perf_counter()
+
+    # Acumula les mesures i informa cada 30 crides.
+    if not hasattr(calcula_interaccions, "_mostres"):
+        calcula_interaccions._mostres = []
+
+    calcula_interaccions._mostres.append((
+        (t_parets - inici) * 1000,
+        (t_graella - t_parets) * 1000,
+        (final - t_graella) * 1000,
+        candidates,
+        efectives,
+    ))
+
+    if len(calcula_interaccions._mostres) >= 30:
+        dades = calcula_interaccions._mostres
+        n = len(dades)
+
+        print(
+            f"Parets: {sum(d[0] for d in dades) / n:.2f} ms | "
+            f"Graella: {sum(d[1] for d in dades) / n:.2f} ms | "
+            f"Parelles: {sum(d[2] for d in dades) / n:.2f} ms | "
+            f"Candidats/fotograma: "
+            f"{sum(d[3] for d in dades) / n:.0f} | "
+            f"Interaccions/fotograma: "
+            f"{sum(d[4] for d in dades) / n:.0f}"
+        )
+
+        calcula_interaccions._mostres = []
 
 
 # ======================================================================
@@ -221,7 +264,13 @@ def main():
         for _ in range(NOMBRE_PARTICULES)
     ]
 
+    ultim_informe = time.perf_counter()
+    fotogrames = 0
+    suma_interaccions = 0.0
+    suma_actualitzacio = 0.0
+    suma_dibuix = 0.0
     executant = True
+
     while executant:
         dt = rellotge.tick(FPS) / 1000.0   # segons des de l'últim fotograma
         dt = min(dt, 1 / 30)               # evita salts grans si la finestra es bloqueja
@@ -231,13 +280,24 @@ def main():
                 executant = False
             elif esdeveniment.type == pygame.KEYDOWN and esdeveniment.key == pygame.K_ESCAPE:
                 executant = False
-
+        
+        # 1. Interaccions entre partícules
+        t0 = time.perf_counter()
         calcula_interaccions(particules)
+        t_interaccions = time.perf_counter() - t0
+
+        # 2. Actualització física
+        t0 = time.perf_counter()
         for particula in particules:
             particula.actualitza(dt)
+        t_actualitzacio = time.perf_counter() - t0
 
-        v_mitjana = sum(math.hypot(p.vx, p.vy) for p in particules) / len(particules)
+        v_mitjana = sum(
+            math.hypot(p.vx, p.vy) for p in particules
+        ) / len(particules)
 
+        # 3. Dibuix de les partícules
+        t0 = time.perf_counter()
         pantalla.fill(COLOR_FONS)
         for particula in particules:
             particula.dibuixa(pantalla)
@@ -246,8 +306,33 @@ def main():
         text = font.render(f"v mitjana: {v_mitjana:.2f} m/s", True, tuple(int(a + t * (b - a)) for a, b in zip(COLOR_QUIET, COLOR_RAPID)))
         pygame.draw.rect(pantalla, COLOR_RECTANGLE, (0, ALTURA, AMPLADA, ALTURA_PANT-ALTURA))
         pantalla.blit(text, text.get_rect(topright=(AMPLADA - 10, ALTURA_PANT - 25)))
-        
+
         pygame.display.flip()
+        t_dibuix = time.perf_counter() - t0
+        fotogrames += 1
+        suma_interaccions += t_interaccions
+        suma_actualitzacio += t_actualitzacio
+        suma_dibuix += t_dibuix
+
+        ara = time.perf_counter()
+        if ara - ultim_informe >= 1.0:
+            n = max(fotogrames, 1)
+
+            """
+            print(
+                f"Partícules: {len(particules)} | "
+                f"FPS objectiu: {FPS} | "
+                f"Interaccions: {suma_interaccions / n * 1000:.2f} ms | "
+                f"Actualització: {suma_actualitzacio / n * 1000:.2f} ms | "
+                f"Dibuix: {suma_dibuix / n * 1000:.2f} ms"
+            )
+
+            ultim_informe = ara
+            fotogrames = 0
+            suma_interaccions = 0.0
+            suma_actualitzacio = 0.0
+            suma_dibuix = 0.0
+            """
 
     pygame.quit()
 
