@@ -182,16 +182,28 @@ def parelles_veines(graella):
                         yield a, b
 
 
+
 def calcula_interaccions(particules):
-    """Només suma els efectes de cada interacció sobre l'acceleració."""
+    inici = time.perf_counter()
+
     for p in particules:
         p.ax, p.ay = forca_parets(p)
 
+    t_parets = time.perf_counter()
     graella = construeix_graella(particules)
+    t_graella = time.perf_counter()
+
+    candidates = 0
+    efectives = 0
+
     for a, b in parelles_veines(graella):
+        candidates += 1
+
         geo = geometria_parella(a, b)
-        if geo is None:                          # veïna de cel·la però fora d'abast
+        if geo is None:
             continue
+
+        efectives += 1
         r, ux, uy, dvx, dvy = geo
 
         rep = forca_repulsio(r, ux, uy)
@@ -204,6 +216,36 @@ def calcula_interaccions(particules):
         a.ay += fy
         b.ax -= fx
         b.ay -= fy
+
+    final = time.perf_counter()
+
+    # Acumula les mesures i informa cada 30 crides.
+    if not hasattr(calcula_interaccions, "_mostres"):
+        calcula_interaccions._mostres = []
+
+    calcula_interaccions._mostres.append((
+        (t_parets - inici) * 1000,
+        (t_graella - t_parets) * 1000,
+        (final - t_graella) * 1000,
+        candidates,
+        efectives,
+    ))
+
+    if len(calcula_interaccions._mostres) >= 30:
+        dades = calcula_interaccions._mostres
+        n = len(dades)
+
+        print(
+            f"Parets: {sum(d[0] for d in dades) / n:.2f} ms | "
+            f"Graella: {sum(d[1] for d in dades) / n:.2f} ms | "
+            f"Parelles: {sum(d[2] for d in dades) / n:.2f} ms | "
+            f"Candidats/fotograma: "
+            f"{sum(d[3] for d in dades) / n:.0f} | "
+            f"Interaccions/fotograma: "
+            f"{sum(d[4] for d in dades) / n:.0f}"
+        )
+
+        calcula_interaccions._mostres = []
 
 
 # ======================================================================
@@ -238,8 +280,6 @@ def main():
                 executant = False
             elif esdeveniment.type == pygame.KEYDOWN and esdeveniment.key == pygame.K_ESCAPE:
                 executant = False
-
-        calcula_interaccions(particules)
         
         # 1. Interaccions entre partícules
         t0 = time.perf_counter()
@@ -262,8 +302,10 @@ def main():
         for particula in particules:
             particula.dibuixa(pantalla)
 
-        # Mantén aquí el teu codi actual que dibuixa el text
-        # de la velocitat mitjana i la franja inferior.
+        t = min(v_mitjana / VELOCITAT_MAXIMA, 1.0)      # 0 = quieta, 1 = molt ràpida
+        text = font.render(f"v mitjana: {v_mitjana:.2f} m/s", True, tuple(int(a + t * (b - a)) for a, b in zip(COLOR_QUIET, COLOR_RAPID)))
+        pygame.draw.rect(pantalla, COLOR_RECTANGLE, (0, ALTURA, AMPLADA, ALTURA_PANT-ALTURA))
+        pantalla.blit(text, text.get_rect(topright=(AMPLADA - 10, ALTURA_PANT - 25)))
 
         pygame.display.flip()
         t_dibuix = time.perf_counter() - t0
@@ -276,6 +318,7 @@ def main():
         if ara - ultim_informe >= 1.0:
             n = max(fotogrames, 1)
 
+            """
             print(
                 f"Partícules: {len(particules)} | "
                 f"FPS objectiu: {FPS} | "
@@ -289,6 +332,7 @@ def main():
             suma_interaccions = 0.0
             suma_actualitzacio = 0.0
             suma_dibuix = 0.0
+            """
 
     pygame.quit()
 
