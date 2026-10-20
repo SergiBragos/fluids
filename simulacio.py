@@ -20,7 +20,7 @@ INTERVAL_IMPRESSIO = 60   # Imprimeix resultats cada 60 fotogrames
 
 AMPLADA, ALTURA = 400, 400
 ALTURA_PANT = ALTURA + 30
-FPS = 30
+FPS = 60
 
 COLOR_FONS = (15, 15, 25)
 COLOR_RECTANGLE = (80, 80, 80)
@@ -34,10 +34,10 @@ RADI = 5
 # FÍSICA GENERAL
 # ============================================================
 
-PIXELS_PER_METRE = 200.0
-GRAVETAT = 9.81
-RESTITUCIO = 0.3
-NOMBRE_PARTICULES = 600
+PIXELS_PER_METRE = 100.0
+GRAVETAT = 0
+RESTITUCIO = 0.5
+NOMBRE_PARTICULES = 300
 
 # Mides del recipient en metres.
 AMPLADA_M = AMPLADA / PIXELS_PER_METRE
@@ -67,6 +67,7 @@ def main():
     ]
 
     executant = True
+    aturat = False
 
     # Acumuladors de mesures.
     mostres = 0
@@ -83,6 +84,8 @@ def main():
         "cel·les": 0
     }
 
+    # El bucle continua actiu encara que la simulació estigui pausada,
+    # perquè la finestra pugui rebre la barra espaiadora i reprendre's.
     while executant:
         dt = rellotge.tick(FPS) / 1000.0
         dt = min(dt, 1 / 30)
@@ -95,14 +98,19 @@ def main():
             if esdeveniment.type == pygame.QUIT:
                 executant = False
 
-            elif (
-                esdeveniment.type == pygame.KEYDOWN
-                and esdeveniment.key == pygame.K_ESCAPE
-            ):
+            elif (esdeveniment.type == pygame.KEYDOWN and esdeveniment.key == pygame.K_ESCAPE):
                 executant = False
+
+            elif (esdeveniment.type == pygame.KEYDOWN and esdeveniment.key == pygame.K_SPACE):
+                aturat = not aturat
 
         if not executant:
             break
+
+        # En pausa no s'actualitzen les forces ni la posició de les partícules.
+        # El fotograma actual es manté visible fins que es torni a prémer espai.
+        if aturat:
+            continue
 
         # 1. Interaccions.
         mesures = calcula_interaccions(
