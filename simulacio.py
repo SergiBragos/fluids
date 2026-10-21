@@ -1,7 +1,7 @@
 #simulacio.py -- Bucle principal de la simulació
 
 from particula import Particula
-from funcions_aux import calcula_interaccions
+from funcions_aux import calcula_interaccions, densitat_a_punt, RADI_INTERACCIO
 import time
 import math
 import random
@@ -12,7 +12,7 @@ import pygame
 # ============================================================
 
 MESURA_TEMPS = False       # False per desactivar les mesures
-INTERVAL_IMPRESSIO = 60   # Imprimeix resultats cada 60 fotogrames
+INTERVAL_IMPRESSIO = 480   # Imprimeix resultats cada 60 fotogrames
 
 # ============================================================
 # CONFIGURACIÓ DE LA FINESTRA
@@ -21,23 +21,25 @@ INTERVAL_IMPRESSIO = 60   # Imprimeix resultats cada 60 fotogrames
 AMPLADA, ALTURA = 400, 400
 ALTURA_PANT = ALTURA + 30
 FPS = 60
+DIV_DT = 10000
 
 COLOR_FONS = (15, 15, 25)
 COLOR_RECTANGLE = (80, 80, 80)
+COLOR_PARTICULA_FORA = (100, 100, 100)
 COLOR_QUIET = (80, 170, 255)
 COLOR_RAPID = (255, 50, 50)
 
 VELOCITAT_MAXIMA = 5.0
-RADI = 5
+RADI = 2
 
 # ============================================================
 # FÍSICA GENERAL
 # ============================================================
 
 PIXELS_PER_METRE = 100.0
-GRAVETAT = 0
+GRAVETAT = 9.81
 RESTITUCIO = 0.5
-NOMBRE_PARTICULES = 300
+NOMBRE_PARTICULES = 1000
 
 # Mides del recipient en metres.
 AMPLADA_M = AMPLADA / PIXELS_PER_METRE
@@ -87,7 +89,7 @@ def main():
     # El bucle continua actiu encara que la simulació estigui pausada,
     # perquè la finestra pugui rebre la barra espaiadora i reprendre's.
     while executant:
-        dt = rellotge.tick(FPS) / 1000.0
+        dt = rellotge.tick(FPS) / DIV_DT
         dt = min(dt, 1 / 30)
 
         # El temps de processament no inclou l'espera de rellotge.tick().
@@ -110,8 +112,12 @@ def main():
         # En pausa no s'actualitzen les forces ni la posició de les partícules.
         # El fotograma actual es manté visible fins que es torni a prémer espai.
         if aturat:
+            if cursor_dins_pantalla:
+                pygame.draw.circle(
+                pantalla, COLOR_PARTICULA_FORA,
+                (cursor_px, cursor_py), radi_kernel_px, 1,
+            )
             continue
-
         # 1. Interaccions.
         mesures = calcula_interaccions(
             particules, AMPLADA_M, ALTURA_M, MESURA_TEMPS
@@ -141,10 +147,33 @@ def main():
 
         pantalla.fill(COLOR_FONS)
 
+        cursor_px, cursor_py = pygame.mouse.get_pos()
+        cursor_x = cursor_px / PIXELS_PER_METRE
+        cursor_y = cursor_py / PIXELS_PER_METRE
+        cursor_dins_pantalla = 0 <= cursor_px <= AMPLADA and 0 <= cursor_py <= ALTURA
+        densitat_cursor = (
+            densitat_a_punt(particules, cursor_x, cursor_y)
+            if cursor_dins_pantalla else 0.0
+        )
+        radi_kernel_px = int(RADI_INTERACCIO * PIXELS_PER_METRE)
+
         for particula in particules:
+            distancia_cursor = math.hypot(
+                particula.x - cursor_x,
+                particula.y - cursor_y,
+            )
+            color_particula = None
+            if cursor_dins_pantalla and distancia_cursor >= RADI_INTERACCIO:
+                color_particula = COLOR_PARTICULA_FORA
             particula.dibuixa(
                 pantalla, PIXELS_PER_METRE, VELOCITAT_MAXIMA,
-                COLOR_QUIET, COLOR_RAPID,
+                COLOR_QUIET, COLOR_RAPID, color_particula,
+            )
+
+        if cursor_dins_pantalla:
+            pygame.draw.circle(
+                pantalla, COLOR_PARTICULA_FORA,
+                (cursor_px, cursor_py), radi_kernel_px, 1,
             )
 
         t = min(v_mitjana / VELOCITAT_MAXIMA, 1.0)
@@ -171,6 +200,16 @@ def main():
             text_velocitat.get_rect(
                 topright=(AMPLADA - 10, ALTURA_PANT - 25)
             )
+        )
+
+        text_densitat = font.render(
+            f"densitat cursor: {densitat_cursor:.4f}",
+            True,
+            (230, 230, 230),
+        )
+        pantalla.blit(
+            text_densitat,
+            text_densitat.get_rect(topleft=(10, ALTURA + 5)),
         )
 
         pygame.display.flip()

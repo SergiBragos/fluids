@@ -31,13 +31,15 @@ class Particula:
         elif self.x <= radi_m:
             self.x, self.vx = radi_m, -self.vx * restitucio
 
-    def dibuixa(self, pantalla, pixels_per_metre, velocitat_maxima, color_quiet, color_rapid):
-        velocitat = math.hypot(self.vx, self.vy)
-        proporcio = min(velocitat / velocitat_maxima, 1.0)
-        color = tuple(
-            int(inicial + proporcio * (final - inicial))
-            for inicial, final in zip(color_quiet, color_rapid)
-        )
+    def dibuixa(self, pantalla, pixels_per_metre, velocitat_maxima,
+                color_quiet, color_rapid, color=None):
+        if color is None:
+            velocitat = math.hypot(self.vx, self.vy)
+            proporcio = min(velocitat / velocitat_maxima, 1.0)
+            color = tuple(
+                int(inicial + proporcio * (final - inicial))
+                for inicial, final in zip(color_quiet, color_rapid)
+            )
         posicio = (int(self.x * pixels_per_metre), int(self.y * pixels_per_metre))
         pygame.draw.circle(pantalla, color, posicio, self.radi)
 

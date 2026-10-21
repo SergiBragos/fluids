@@ -3,15 +3,15 @@
 import math
 import time
 
-K_PARET = 0.01
-MU_VISCOSITAT = 0.1
+K_PARET = 0.00
+MU_VISCOSITAT = 5
 RADI_INTERACCIO = 0.2
-MIDA_CELLA = RADI_INTERACCIO / 2
+MIDA_CELLA = RADI_INTERACCIO
 
 # Paràmetres del model SPH (unitats del model, no SI estrictes).
 MASSA_PARTICULA = 0.01
-DENSITAT_REPOS = 0.01
-K_PRESSIO = 1
+DENSITAT_REPOS = 0.0
+K_PRESSIO = 1 # Segons IA, K gran --> Incompressible / K petita --> Compressible. En realitat genera molta inestabilitat...
 
 
 def construeix_graella(particules):
@@ -58,11 +58,10 @@ def geometria_parella(primera, segona):
     # Si dues partícules coincideixen, la direcció és indeterminada.
     # Escollim una direcció fixa perquè la força les pugui separar.
     if distancia == 0.0:
-        ux, uy = 1.0, 0.0
+        ux, uy = 0.0, -1.0
     else:
         ux, uy = dx / distancia, dy / distancia
-    return (distancia, ux, uy,
-            primera.vx - segona.vx, primera.vy - segona.vy)
+    return (distancia, ux, uy, primera.vx - segona.vx, primera.vy - segona.vy)
 
 
 def kernel(r, h=RADI_INTERACCIO, d=2):
@@ -76,6 +75,18 @@ def kernel(r, h=RADI_INTERACCIO, d=2):
         polinomi = 0.0
     sigma = 40 / (7 * math.pi * h ** 2) if d == 2 else 4 / (3 * h)
     return sigma * polinomi
+
+
+def densitat_a_punt(particules, x, y, h=RADI_INTERACCIO):
+    """Calcula la densitat SPH interpolada en un punt del pla."""
+    densitat = 0.0
+    for particula in particules:
+        dx = particula.x - x
+        dy = particula.y - y
+        distancia = math.hypot(dx, dy)
+        if distancia < h:
+            densitat += MASSA_PARTICULA * kernel(distancia, h)
+    return densitat
 
 
 def gradient_kernel(r, h=RADI_INTERACCIO):
