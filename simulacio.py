@@ -1,7 +1,7 @@
 #simulacio.py -- Bucle principal de la simulació
 
 from particula import Particula
-from funcions_aux import calcula_interaccions, densitat_a_punt, RADI_INTERACCIO
+from funcions_aux import calcula_interaccions, densitat_a_punt, RADI_INTERACCIO, K_PRESSIO
 import time
 import math
 import random
@@ -21,7 +21,7 @@ INTERVAL_IMPRESSIO = 480   # Imprimeix resultats cada 60 fotogrames
 AMPLADA, ALTURA = 400, 400
 ALTURA_PANT = ALTURA + 30
 FPS = 60
-DIV_DT = 10000
+DIV_DT = 1000
 
 COLOR_FONS = (15, 15, 25)
 COLOR_RECTANGLE = (80, 80, 80)
@@ -36,10 +36,10 @@ RADI = 2
 # FÍSICA GENERAL
 # ============================================================
 
-PIXELS_PER_METRE = 100.0
+PIXELS_PER_METRE = 200.0
 GRAVETAT = 9.81
 RESTITUCIO = 0.5
-NOMBRE_PARTICULES = 1000
+NOMBRE_PARTICULES = 600
 
 # Mides del recipient en metres.
 AMPLADA_M = AMPLADA / PIXELS_PER_METRE
@@ -90,7 +90,7 @@ def main():
     # perquè la finestra pugui rebre la barra espaiadora i reprendre's.
     while executant:
         dt = rellotge.tick(FPS) / DIV_DT
-        dt = min(dt, 1 / 30)
+        dt = min(dt, RADI_INTERACCIO / K_PRESSIO, 1/30)
 
         # El temps de processament no inclou l'espera de rellotge.tick().
         if MESURA_TEMPS:

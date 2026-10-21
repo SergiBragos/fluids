@@ -4,14 +4,17 @@ import math
 import time
 
 K_PARET = 0.00
-MU_VISCOSITAT = 5
+MU_VISCOSITAT = 1
 RADI_INTERACCIO = 0.2
 MIDA_CELLA = RADI_INTERACCIO
 
 # Paràmetres del model SPH (unitats del model, no SI estrictes).
 MASSA_PARTICULA = 0.01
-DENSITAT_REPOS = 0.0
-K_PRESSIO = 1 # Segons IA, K gran --> Incompressible / K petita --> Compressible. En realitat genera molta inestabilitat...
+DENSITAT_REPOS = 0
+K_PRESSIO = 1
+# K_PRESSIO gran --> Incompressible / K_PRESSIO petita --> Compressible.
+# En realitat genera molta inestabilitat, ja que amb K grans has de fer el dt molt petit.
+# dt <= RADI_INTERACCIO / K_PRESSIO
 
 
 def construeix_graella(particules):
