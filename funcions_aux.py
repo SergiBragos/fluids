@@ -88,7 +88,7 @@ def densitat_a_punt(particules, x, y, h=RADI_INTERACCIO):
         dy = particula.y - y
         distancia = math.hypot(dx, dy)
         if distancia < h:
-            densitat += MASSA_PARTICULA * kernel(distancia, h)
+            densitat += MASSA_PARTICULA * kernel(distancia)
     return densitat
 
 

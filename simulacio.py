@@ -37,9 +37,9 @@ RADI = 2
 # ============================================================
 
 PIXELS_PER_METRE = 200.0
-GRAVETAT = 9.81
+GRAVETAT = 0
 RESTITUCIO = 0.5
-NOMBRE_PARTICULES = 600
+NOMBRE_PARTICULES = 1000
 
 # Mides del recipient en metres.
 AMPLADA_M = AMPLADA / PIXELS_PER_METRE
@@ -109,37 +109,30 @@ def main():
         if not executant:
             break
 
-        # En pausa no s'actualitzen les forces ni la posició de les partícules.
-        # El fotograma actual es manté visible fins que es torni a prémer espai.
-        if aturat:
-            if cursor_dins_pantalla:
-                pygame.draw.circle(
-                pantalla, COLOR_PARTICULA_FORA,
-                (cursor_px, cursor_py), radi_kernel_px, 1,
+        # La pausa atura la física, però no l'entrada ni el dibuix.
+        if not aturat:
+            # 1. Interaccions.
+            mesures = calcula_interaccions(
+                particules, AMPLADA_M, ALTURA_M, MESURA_TEMPS
             )
-            continue
-        # 1. Interaccions.
-        mesures = calcula_interaccions(
-            particules, AMPLADA_M, ALTURA_M, MESURA_TEMPS
-        )
 
-        # 2. Actualització física.
-        if MESURA_TEMPS:
-            t0 = time.perf_counter()
+            # 2. Actualització física.
+            if MESURA_TEMPS:
+                t0 = time.perf_counter()
 
-        v_mitjana = 0.0
+            for particula in particules:
+                particula.actualitza(
+                    dt, GRAVETAT, RESTITUCIO,
+                    AMPLADA_M, ALTURA_M, PIXELS_PER_METRE,
+                )
 
-        for particula in particules:
-            particula.actualitza(
-                dt, GRAVETAT, RESTITUCIO,
-                AMPLADA_M, ALTURA_M, PIXELS_PER_METRE,
-            )
-            v_mitjana += math.hypot(particula.vx, particula.vy)
+            if MESURA_TEMPS:
+                temps_actualitzacio = time.perf_counter() - t0
 
-        v_mitjana /= len(particules)
-
-        if MESURA_TEMPS:
-            temps_actualitzacio = time.perf_counter() - t0
+        v_mitjana = sum(
+            math.hypot(particula.vx, particula.vy)
+            for particula in particules
+        ) / len(particules)
 
         # 3. Dibuix.
         if MESURA_TEMPS:
@@ -214,7 +207,7 @@ def main():
 
         pygame.display.flip()
 
-        if MESURA_TEMPS:
+        if MESURA_TEMPS and not aturat:
             temps_dibuix = time.perf_counter() - t0
             temps_fotograma = time.perf_counter() - inici_fotograma
 
