@@ -138,9 +138,8 @@ def calcula_interaccions(particules, amplada_m, altura_m, mesura_temps=False):
     # Es limita a zero la pressió negativa per evitar inestabilitat de tracció
     # quan hi ha partícules aïllades o zones poc poblades.
     for particula in particules:
-        particula.pressio = K_PRESSIO * max(
-            particula.densitat - DENSITAT_REPOS, 0.0
-        )
+        # particula.pressio = K_PRESSIO * max( particula.densitat - DENSITAT_REPOS, 0.0)
+        particula.pressio = K_PRESSIO * (particula.densitat - DENSITAT_REPOS)
 
     # Tercer pas: gradient de pressió + viscositat.
     for primera, segona, r, ux, uy, dvx, dvy in parelles:
