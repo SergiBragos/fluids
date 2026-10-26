@@ -3,42 +3,30 @@
 import math
 import time
 
-K_PARET = 0.00
-MU_VISCOSITAT = 1
+import numpy as np
+from sklearn.neighbors import KDTree
+
+K_PARET = 0.0
+MU_VISCOSITAT = 5
 RADI_INTERACCIO = 0.2
-MIDA_CELLA = RADI_INTERACCIO
 
 # Paràmetres del model SPH (unitats del model, no SI estrictes).
-MASSA_PARTICULA = 0.01
-DENSITAT_REPOS = 0
-K_PRESSIO = 1
+MASSA_PARTICULA = 0.1
+DENSITAT_REPOS = 20
+# Densitat alta: líquid // Densitat baixa: gas
+K_PRESSIO = 20
 # K_PRESSIO gran --> Incompressible / K_PRESSIO petita --> Compressible.
 # En realitat genera molta inestabilitat, ja que amb K grans has de fer el dt molt petit.
 # dt <= RADI_INTERACCIO / K_PRESSIO
 
 
-def construeix_graella(particules):
-    graella = {}
-    for particula in particules:
-        clau = (int(particula.x // MIDA_CELLA), int(particula.y // MIDA_CELLA))
-        graella.setdefault(clau, []).append(particula)
-    return graella
-
-
-def parelles_veines(graella):
-    """Genera cada parella candidata una única vegada."""
-    max_offset = math.ceil(RADI_INTERACCIO / MIDA_CELLA)
-    for (cx, cy), cella in graella.items():
-        for index, primera in enumerate(cella):
-            for segona in cella[index + 1:]:
-                yield primera, segona
-        for ox in range(max_offset + 1):
-            for oy in range(-max_offset, max_offset + 1):
-                if ox == 0 and oy <= 0:
-                    continue
-                for primera in cella:
-                    for segona in graella.get((cx + ox, cy + oy), []):
-                        yield primera, segona
+def construeix_kdtree(particules):
+    """Construeix un arbre amb les posicions actuals de les partícules."""
+    coordenades = np.asarray(
+        [(particula.x, particula.y) for particula in particules],
+        dtype=float,
+    )
+    return KDTree(coordenades)
 
 
 def forca_parets(particula, amplada_m, altura_m):
@@ -80,16 +68,20 @@ def kernel(r, h=RADI_INTERACCIO, d=2):
     return sigma * polinomi
 
 
-def densitat_a_punt(particules, x, y, h=RADI_INTERACCIO):
+def densitat_a_punt(particules, x, y, h=RADI_INTERACCIO, arbre=None):
     """Calcula la densitat SPH interpolada en un punt del pla."""
-    densitat = 0.0
-    for particula in particules:
-        dx = particula.x - x
-        dy = particula.y - y
-        distancia = math.hypot(dx, dy)
-        if distancia < h:
-            densitat += MASSA_PARTICULA * kernel(distancia)
-    return densitat
+    if arbre is None:
+        arbre = construeix_kdtree(particules)
+    indexos, distancies = arbre.query_radius(
+        np.asarray([[x, y]], dtype=float),
+        r=h,
+        return_distance=True,
+        sort_results=True,
+    )
+    return sum(
+        MASSA_PARTICULA * kernel(float(distancia), h)
+        for distancia in distancies[0]
+    )
 
 
 def gradient_kernel(r, h=RADI_INTERACCIO):
@@ -104,14 +96,16 @@ def gradient_kernel(r, h=RADI_INTERACCIO):
     return -30 / (math.pi * h ** 5) * (h - r) ** 2
 
 
-def calcula_interaccions(particules, amplada_m, altura_m, mesura_temps=False):
+def calcula_interaccions(particules, amplada_m, altura_m,
+                         mesura_temps=False, arbre=None):
     inici = time.perf_counter() if mesura_temps else None
     for particula in particules:
         particula.ax, particula.ay = forca_parets(particula, amplada_m, altura_m)
     temps_parets = time.perf_counter() - inici if mesura_temps else 0.0
 
     inici = time.perf_counter() if mesura_temps else None
-    graella = construeix_graella(particules)
+    if arbre is None:
+        arbre = construeix_kdtree(particules)
     temps_graella = time.perf_counter() - inici if mesura_temps else 0.0
 
     inici = time.perf_counter() if mesura_temps else None
@@ -121,25 +115,41 @@ def calcula_interaccions(particules, amplada_m, altura_m, mesura_temps=False):
     for particula in particules:
         particula.densitat = MASSA_PARTICULA * kernel(0.0)
 
+    coordenades = np.asarray(
+        [(particula.x, particula.y) for particula in particules],
+        dtype=float,
+    )
+    indexos_veins, _ = arbre.query_radius(
+        coordenades,
+        r=RADI_INTERACCIO,
+        return_distance=True,
+        sort_results=True,
+    )
+
     parelles = []
-    for primera, segona in parelles_veines(graella):
-        candidates += 1
-        geometria = geometria_parella(primera, segona)
-        if geometria is None:
-            continue
-        efectives += 1
-        r, ux, uy, dvx, dvy = geometria
-        pes_densitat = MASSA_PARTICULA * kernel(r)
-        primera.densitat += pes_densitat
-        segona.densitat += pes_densitat
-        parelles.append((primera, segona, r, ux, uy, dvx, dvy))
+    for index_primera, veins in enumerate(indexos_veins):
+        for index_segona in veins:
+            if index_segona <= index_primera:
+                continue
+            candidates += 1
+            primera = particules[index_primera]
+            segona = particules[index_segona]
+            geometria = geometria_parella(primera, segona)
+            if geometria is None:
+                continue
+            efectives += 1
+            r, ux, uy, dvx, dvy = geometria
+            pes_densitat = MASSA_PARTICULA * kernel(r)
+            primera.densitat += pes_densitat
+            segona.densitat += pes_densitat
+            parelles.append((primera, segona, r, ux, uy, dvx, dvy))
 
     # Segon pas SPH: equació d'estat lineal.
     # Es limita a zero la pressió negativa per evitar inestabilitat de tracció
     # quan hi ha partícules aïllades o zones poc poblades.
     for particula in particules:
-        # particula.pressio = K_PRESSIO * max( particula.densitat - DENSITAT_REPOS, 0.0)
-        particula.pressio = K_PRESSIO * (particula.densitat - DENSITAT_REPOS)
+        particula.pressio = K_PRESSIO * max( particula.densitat - DENSITAT_REPOS, 0.0)
+        # particula.pressio = K_PRESSIO * (particula.densitat - DENSITAT_REPOS)
 
     # Tercer pas: gradient de pressió + viscositat.
     for primera, segona, r, ux, uy, dvx, dvy in parelles:
@@ -166,6 +176,6 @@ def calcula_interaccions(particules, amplada_m, altura_m, mesura_temps=False):
         "parelles": time.perf_counter() - inici,
         "candidates": candidates,
         "efectives": efectives,
-        "cel·les": len(graella),
+        "cel·les": 0,
     }
 

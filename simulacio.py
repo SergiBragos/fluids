@@ -1,7 +1,13 @@
 #simulacio.py -- Bucle principal de la simulació
 
 from particula import Particula
-from funcions_aux import calcula_interaccions, densitat_a_punt, RADI_INTERACCIO, K_PRESSIO
+from funcions_aux import (
+    calcula_interaccions,
+    construeix_kdtree,
+    densitat_a_punt,
+    RADI_INTERACCIO,
+    K_PRESSIO,
+)
 import time
 import math
 import random
@@ -18,9 +24,9 @@ INTERVAL_IMPRESSIO = 480   # Imprimeix resultats cada 60 fotogrames
 # CONFIGURACIÓ DE LA FINESTRA
 # ============================================================
 
-AMPLADA, ALTURA = 400, 400
+AMPLADA, ALTURA = 1000, 600
 ALTURA_PANT = ALTURA + 30
-FPS = 60
+FPS = 30
 DIV_DT = 1000
 
 COLOR_FONS = (15, 15, 25)
@@ -30,16 +36,16 @@ COLOR_QUIET = (80, 170, 255)
 COLOR_RAPID = (255, 50, 50)
 
 VELOCITAT_MAXIMA = 5.0
-RADI = 2
+RADI = 6
 
 # ============================================================
 # FÍSICA GENERAL
 # ============================================================
 
-PIXELS_PER_METRE = 200.0
-GRAVETAT = 0
-RESTITUCIO = 0.5
-NOMBRE_PARTICULES = 1000
+PIXELS_PER_METRE = 300.0
+GRAVETAT = 9.81
+RESTITUCIO = 0.2
+NOMBRE_PARTICULES = 600
 
 # Mides del recipient en metres.
 AMPLADA_M = AMPLADA / PIXELS_PER_METRE
@@ -67,6 +73,7 @@ def main():
         )
         for _ in range(NOMBRE_PARTICULES)
     ]
+    arbre = construeix_kdtree(particules)
 
     executant = True
     aturat = False
@@ -112,8 +119,9 @@ def main():
         # La pausa atura la física, però no l'entrada ni el dibuix.
         if not aturat:
             # 1. Interaccions.
+            arbre = construeix_kdtree(particules)
             mesures = calcula_interaccions(
-                particules, AMPLADA_M, ALTURA_M, MESURA_TEMPS
+                particules, AMPLADA_M, ALTURA_M, MESURA_TEMPS, arbre
             )
 
             # 2. Actualització física.
@@ -125,6 +133,9 @@ def main():
                     dt, GRAVETAT, RESTITUCIO,
                     AMPLADA_M, ALTURA_M, PIXELS_PER_METRE,
                 )
+
+            # Les posicions han canviat; actualitzem l'arbre per al cursor.
+            arbre = construeix_kdtree(particules)
 
             if MESURA_TEMPS:
                 temps_actualitzacio = time.perf_counter() - t0
@@ -145,7 +156,7 @@ def main():
         cursor_y = cursor_py / PIXELS_PER_METRE
         cursor_dins_pantalla = 0 <= cursor_px <= AMPLADA and 0 <= cursor_py <= ALTURA
         densitat_cursor = (
-            densitat_a_punt(particules, cursor_x, cursor_y)
+            densitat_a_punt(particules, cursor_x, cursor_y, arbre=arbre)
             if cursor_dins_pantalla else 0.0
         )
         radi_kernel_px = int(RADI_INTERACCIO * PIXELS_PER_METRE)
